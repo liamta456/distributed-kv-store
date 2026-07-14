@@ -72,6 +72,22 @@ SOCKET acceptClient(SOCKET listenSock) {
     return clientSock;
 }
 
+bool connectToSocket(SOCKET clientSock, unsigned short serverPort) {
+    // Set up server address
+    sockaddr_in serverSockAddr;
+    serverSockAddr.sin_family = AF_INET;
+    serverSockAddr.sin_port = htons(serverPort);
+    serverSockAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    // Connect to server
+    if (connect(clientSock, (sockaddr*) &serverSockAddr, sizeof(serverSockAddr)) == SOCKET_ERROR) {
+        std::cerr << "connect() failed: " << WSAGetLastError() << std::endl;
+        return false;
+    }
+    
+    return true;
+}
+
 std::optional<std::string> receiveString(SOCKET senderSock) {
     if (senderSock == INVALID_SOCKET) {
         std::cerr << "receiveString() failed: senderSock argument is invalid." << std::endl;
@@ -93,7 +109,7 @@ std::optional<std::string> receiveString(SOCKET senderSock) {
     return std::nullopt;
 }
 
-bool sendString(SOCKET senderSock, std::string data) {
+bool sendString(SOCKET senderSock, const std::string &data) {
     if (senderSock == INVALID_SOCKET) {
         std::cerr << "sendString() failed: senderSock argument is invalid." << std::endl;
         return false;
@@ -107,8 +123,9 @@ bool sendString(SOCKET senderSock, std::string data) {
     return true;
 }
 
-void closeSocket(SOCKET sock) {
+void closeSocket(SOCKET &sock) {
     closesocket(sock);
+    sock = INVALID_SOCKET;
 }
 
 void cleanupWinsock() {
