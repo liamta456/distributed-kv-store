@@ -108,7 +108,7 @@ std::string processCommand(const std::string command) {
         tokens.push_back(token);
     }
 
-    if (tokens[0] == "get") {
+    if (tokens[0] == "GET") {
         auto val = get(tokens[1]);
 
         if (val.has_value()) {
@@ -117,14 +117,14 @@ std::string processCommand(const std::string command) {
             res = "Failed to perform GET: key=" + tokens[1];
         }
 
-    } else if (tokens[0] == "del") {
+    } else if (tokens[0] == "DEL") {
         if (del(tokens[1])) {
             res = "Successfully performed DEL: key=" + tokens[1];
         } else {
             res = "Failed to perform DEL: key=" + tokens[1];
         }
 
-    } else if (tokens[0] == "put") {
+    } else if (tokens[0] == "PUT") {
         put(tokens[1], tokens[2]);
         res = "Successfully performed PUT: key=" + tokens[1] + " value=" + tokens[2];
 
