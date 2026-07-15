@@ -1,10 +1,57 @@
 #include "net/socket_utils.h"
 
+#include <cctype>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <string>
 
 #include <winsock2.h>
+
+bool processCommand(std::string &command) {
+    std::stringstream commandStream(command);
+
+    std::string op;
+    std::string key;
+    std::string value;
+    std::string extra;
+
+    if (!(commandStream >> op) || !(commandStream >> key)) {
+        return false;
+    }
+
+    for (char &c : op) {
+        c = std::toupper(static_cast<unsigned char>(c));
+    }
+
+    
+    if (op == "PUT") {
+        if (!(commandStream >> value)) {
+            return false;
+        }
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key + " " + value;
+
+    } else if (op == "GET") {
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key;
+
+    } else if (op == "DEL") {
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key;
+
+    } else {
+        return false;
+    }
+
+    return true;
+}
 
 int main() {
     std::cout << "--- KV STORE: CLIENT ---\n" << std::endl;
@@ -41,6 +88,11 @@ int main() {
 
         if (command == "") {
             break;
+        }
+
+        if (!processCommand(command)) {
+            std::cerr << "Error: invalid command.\n" << std::endl;
+            continue;
         }
 
         if (sendString(proxySock, command) == false) {
