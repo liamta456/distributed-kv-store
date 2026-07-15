@@ -8,50 +8,7 @@
 
 #include <winsock2.h>
 
-bool processCommand(std::string &command) {
-    std::stringstream commandStream(command);
-
-    std::string op;
-    std::string key;
-    std::string value;
-    std::string extra;
-
-    if (!(commandStream >> op) || !(commandStream >> key)) {
-        return false;
-    }
-
-    for (char &c : op) {
-        c = std::toupper(static_cast<unsigned char>(c));
-    }
-
-    
-    if (op == "PUT") {
-        if (!(commandStream >> value)) {
-            return false;
-        }
-        if (commandStream >> extra) {
-            return false;
-        }
-        command = op + " " + key + " " + value;
-
-    } else if (op == "GET") {
-        if (commandStream >> extra) {
-            return false;
-        }
-        command = op + " " + key;
-
-    } else if (op == "DEL") {
-        if (commandStream >> extra) {
-            return false;
-        }
-        command = op + " " + key;
-
-    } else {
-        return false;
-    }
-
-    return true;
-}
+bool processCommand(std::string &command);
 
 int main() {
     std::cout << "--- KV STORE: CLIENT ---\n" << std::endl;
@@ -116,4 +73,49 @@ int main() {
     cleanupWinsock();
 
     return 0;
+}
+
+bool processCommand(std::string &command) {
+    std::stringstream commandStream(command);
+
+    std::string op;
+    std::string key;
+    std::string value;
+    std::string extra;
+
+    if (!(commandStream >> op) || !(commandStream >> key)) {
+        return false;
+    }
+
+    for (char &c : op) {
+        c = std::toupper(static_cast<unsigned char>(c));
+    }
+
+    
+    if (op == "PUT") {
+        if (!(commandStream >> value)) {
+            return false;
+        }
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key + " " + value;
+
+    } else if (op == "GET") {
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key;
+
+    } else if (op == "DEL") {
+        if (commandStream >> extra) {
+            return false;
+        }
+        command = op + " " + key;
+
+    } else {
+        return false;
+    }
+
+    return true;
 }
