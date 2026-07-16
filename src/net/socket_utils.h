@@ -8,10 +8,11 @@
 
 bool initWinsock(WSADATA &wsaData);
 SOCKET createSocket();
-bool bindAndListen(SOCKET listenSock, unsigned short port);
-SOCKET acceptClient(SOCKET listenSock);
-bool connectToSocket(SOCKET clientSock, unsigned short serverPort);
-std::optional<std::string> receiveString(SOCKET senderSock);
-bool sendString(SOCKET senderSock, const std::string &data);
+bool bindAndListen(SOCKET sock, unsigned short port);
+SOCKET acceptClient(SOCKET sock);
+bool connectSocket(SOCKET sock, unsigned short listenPort);
+std::optional<std::string> receiveString(SOCKET sock);
+bool sendString(SOCKET sock, const std::string &data);
 void closeSocket(SOCKET &sock);
 void cleanupWinsock();
+int getLastWinsockError();
