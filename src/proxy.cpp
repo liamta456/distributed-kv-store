@@ -1,6 +1,8 @@
 #include "net/socket_utils.h"
 
+#include <climits>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -8,7 +10,34 @@
 
 #include <winsock2.h>
 
+std::vector<unsigned short> nodePorts = {3000, 3001, 3002};
+std::map<unsigned int, unsigned short> ring; // Entry: (hash, port)
+
+void populateRing() {
+    for (int i = 0; i < nodePorts.size(); i++) {
+        ring.insert({UINT_MAX / nodePorts.size() * i, nodePorts[i]});
+    }
+}
+
+unsigned int hashKey(const std::string &key) {
+    return std::hash<std::string>{}(key);
+}
+
+std::optional<std::string> extractKey(const std::string &command) {
+    std::stringstream commandStream(command);
+    std::string op;
+    std::string key;
+
+    if (!(commandStream >> op) || !(commandStream >> key)) {
+        return std::nullopt;
+    }
+
+    return key;
+}
+
 int main() {
+    populateRing();
+
     std::cout << "--- KV STORE: PROXY API ---" << std::endl;
 
     /* --- WSA Setup --- */
@@ -63,6 +92,25 @@ int main() {
             }
             std::cout << "\nReceived from client: " << commandOpt.value() << std::endl;
 
+            /* --- Choose Proper Storage Node --- */
+
+            auto keyOpt = extractKey(commandOpt.value());
+            if (!keyOpt.has_value()) {
+                std::cout << "Error: Failed to extract key from client command." << std::endl;
+                closeSocket(clientSock);
+                break;
+            }
+
+            unsigned int keyHash = hashKey(keyOpt.value());
+
+            auto ringIt = ring.lower_bound(keyHash);
+            if (ringIt == ring.end()) {
+                ringIt = ring.begin();
+            }
+
+            unsigned short nodePort = ringIt->second;
+            std::cout << "Routing key='" << keyOpt.value() << "' to port " << nodePort << "." << std::endl;
+
             /* --- Connect to Storage Node --- */
 
             SOCKET nodeSock = createSocket();
@@ -73,7 +121,6 @@ int main() {
             }
             std::cout << "Storage node socket created." << std::endl;
 
-            unsigned short nodePort = 3000;
             if (connectSocket(nodeSock, nodePort) == false) {
                 std::cerr << "Error: Failed to connect to storage node." << std::endl;
                 closeSocket(nodeSock);
