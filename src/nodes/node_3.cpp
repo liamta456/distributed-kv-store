@@ -1,4 +1,4 @@
-#include "net/socket_utils.h"
+#include "../net/socket_utils.h"
 
 #include <iostream>
 #include <optional>
@@ -17,10 +17,10 @@ std::unordered_map<std::string, std::string> store;
 void put(const std::string &key, const std::string &value);
 std::optional<std::string> get(const std::string &key);
 bool del(const std::string &key);
-std::string processCommand(const std::string command);
+std::string processCommand(const std::string &command);
 
 int main() {
-    std::cout << "--- KV STORE: STORAGE SERVER ---\n" << std::endl;
+    std::cout << "--- KV STORE: STORAGE NODE ---" << std::endl;
 
     /* --- WSA Setup --- */
 
@@ -28,45 +28,64 @@ int main() {
     if (initWinsock(wsaData) == false) {
         return 1;
     }
-    std::cout << "Winsock initialized." << std::endl;
+    std::cout << "\nWinsock initialized." << std::endl;
+
+    /* --- Listen for Proxy API Connection --- */
 
     SOCKET listenSock = createSocket();
     if (listenSock == INVALID_SOCKET) {
+        std::cerr << "\nError: Failed to create listening socket." << std::endl;
         cleanupWinsock();
         return 1;
     }
-    std::cout << "Listen socket created." << std::endl;
+    std::cout << "\nListen socket created." << std::endl;
 
-    unsigned short port = 3000;
+    unsigned short port = 3002;
     if (bindAndListen(listenSock, port) == false) {
+        std::cerr << "Error: Failed to bind and listen from listening socket." << std::endl;
         closeSocket(listenSock);
         cleanupWinsock();
         return 1;
     };
-    std::cout << "Listen socket binded and listening on port " << port << "..." << std::endl;
+    std::cout << "Listening socket binded and listening on port " << port << "..." << std::endl;
 
-    SOCKET proxySock = acceptClient(listenSock);
-    if (proxySock == INVALID_SOCKET) {
-        closeSocket(listenSock);
-        cleanupWinsock();
-        return 1;
-    }
-    std::cout << "Proxy API connection established.\n" << std::endl;
+    /* --- Proxy API Connection Loop --- */
 
-    /* --- Client Connection Loop --- */
+    SOCKET proxySock = INVALID_SOCKET;
 
     while (true) {
-        auto data = receiveString(proxySock);
-        if (data.has_value()) {
+        /* --- Accept Proxy API Connection --- */
+
+        proxySock = acceptClient(listenSock);
+        if (proxySock == INVALID_SOCKET) {
+            std::cerr << "\nError: Failed to accept proxy API connection." << std::endl;
+            continue;
+        }
+        std::cout << "\nProxy API connection established." << std::endl;
+
+        while (true) {
+            /* --- Receive Command from Proxy API --- */
+
+            auto data = receiveString(proxySock);
+            if (!data.has_value()) {
+                std::cout << "Connection closed by proxy API." << std::endl;
+                closeSocket(proxySock);
+                break;
+            }
             std::cout << "Received: " << data.value() << std::endl;
+
+            /* --- Validate Command and Perform Operation if Valid --- */
+
             std::string res = processCommand(data.value());
 
-            sendString(proxySock, res);
+            /* --- Send Response to Proxy API --- */
 
-        } else {
-            std::cout << "\nConnection closed by proxy API." << std::endl;
-            break;
-        }  
+            if (sendString(proxySock, res) == false) {
+                std::cerr << "Error: Failed to send response to proxy API." << std::endl;
+                closeSocket(proxySock);
+                break;
+            }
+        }
     }
 
     /* --- Cleanup and Safe Exit --- */
@@ -97,7 +116,7 @@ bool del(const std::string &key) {
     return store.erase(key) == 1;
 }
 
-std::string processCommand(const std::string command) {
+std::string processCommand(const std::string &command) {
     std::stringstream commandStream(command);
     std::vector<std::string> tokens;
     std::string res = "";
@@ -112,21 +131,21 @@ std::string processCommand(const std::string command) {
         auto val = get(tokens[1]);
 
         if (val.has_value()) {
-            res = "Successfully performed GET: key=" + tokens[1] + " value=" + val.value();
+            res = "GET(" + tokens[1] + ") = " + val.value() + "";
         } else {
-            res = "Failed to perform GET: key=" + tokens[1];
+            res = "Failed to perform GET(" + tokens[1] + ").";
         }
 
     } else if (tokens[0] == "DEL") {
         if (del(tokens[1])) {
-            res = "Successfully performed DEL: key=" + tokens[1];
+            res = "DEL(" + tokens[1] + ")";
         } else {
-            res = "Failed to perform DEL: key=" + tokens[1];
+            res = "Failed to perform DEL(" + tokens[1] + ").";
         }
 
     } else if (tokens[0] == "PUT") {
         put(tokens[1], tokens[2]);
-        res = "Successfully performed PUT: key=" + tokens[1] + " value=" + tokens[2];
+        res = "PUT(" + tokens[1] + ", " + tokens[2] + ")";
 
     } else {
         res = "Failed to process command.";

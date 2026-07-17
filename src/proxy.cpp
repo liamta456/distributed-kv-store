@@ -1,115 +1,171 @@
 #include "net/socket_utils.h"
 
+#include <climits>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include <winsock2.h>
 
-int main() {
-    std::cout << "--- KV STORE: PROXY API ---\n" << std::endl;
+std::vector<unsigned short> nodePorts = {3000, 3001, 3002};
+std::map<unsigned int, unsigned short> ring; // Entry: (hash, port)
 
-    /* --- WSA Setup: Proxy-Server Connection --- */
+void populateRing() {
+    for (int i = 0; i < nodePorts.size(); i++) {
+        ring.insert({UINT_MAX / nodePorts.size() * i, nodePorts[i]});
+    }
+}
+
+unsigned int hashKey(const std::string &key) {
+    return std::hash<std::string>{}(key);
+}
+
+std::optional<std::string> extractKey(const std::string &command) {
+    std::stringstream commandStream(command);
+    std::string op;
+    std::string key;
+
+    if (!(commandStream >> op) || !(commandStream >> key)) {
+        return std::nullopt;
+    }
+
+    return key;
+}
+
+int main() {
+    populateRing();
+
+    std::cout << "--- KV STORE: PROXY API ---" << std::endl;
+
+    /* --- WSA Setup --- */
 
     WSADATA wsaData;
     if (initWinsock(wsaData) == false) {
         return 1;
     }
-    std::cout << "Winsock initialized." << std::endl;
+    std::cout << "\nWinsock initialized." << std::endl;
 
-    SOCKET serverSock = createSocket();
-    if (serverSock == INVALID_SOCKET) {
-        cleanupWinsock();
-        return 1;
-    }
-    std::cout << "Server socket created." << std::endl;
-
-    unsigned short serverPort = 3000;
-    if (connectToSocket(serverSock, serverPort) == false) {
-        closeSocket(serverSock);
-        cleanupWinsock();
-        return 1;
-    }
-    std::cout << "Server connection established.\n" << std::endl;
-
-    /* --- WSA Setup: Client-Proxy Listening --- */
+    /* --- Listen for Client Connection --- */
 
     SOCKET listenSock = createSocket();
     if (listenSock == INVALID_SOCKET) {
-        closeSocket(serverSock);
+        std::cerr << "\nError: Failed to create listening socket." << std::endl;
         cleanupWinsock();
         return 1;
     }
-    std::cout << "Listen socket created." << std::endl;
+    std::cout << "\nListening socket created." << std::endl;
 
     unsigned short listenPort = 3030;
     if (bindAndListen(listenSock, listenPort) == false) {
-        closeSocket(serverSock);
+        std::cerr << "Error: Failed to bind and listen from listening socket." << std::endl;
         closeSocket(listenSock);
         cleanupWinsock();
         return 1;
     };
-    std::cout << "Listen socket binded and listening on port " << listenPort << "..." << std::endl;
+    std::cout << "Listening socket binded and listening on port " << listenPort << "..." << std::endl;
 
     /* --- Main Loop: Data Transfer Between Client and Server --- */
 
     SOCKET clientSock = INVALID_SOCKET;
-    bool cont = true;
 
-    while (cont) {
+    while (true) {
+        /* --- Accept Client Connection --- */
+
         clientSock = acceptClient(listenSock);
         if (clientSock == INVALID_SOCKET) {
-            closeSocket(listenSock);
-            closeSocket(serverSock);
-            cleanupWinsock();
-            return 1;
+            std::cerr << "\nError: Failed to accept client connection." << std::endl;
+            continue;
         }
-        std::cout << "Client connection established.\n" << std::endl;
+        std::cout << "\nClient connection established." << std::endl;
 
-        while (true) {
-            auto clientCommand = receiveString(clientSock);
+        while (clientSock != INVALID_SOCKET) {
+            /* --- Receive Client Command --- */
 
-            if (!clientCommand.has_value()) {
+            auto commandOpt = receiveString(clientSock);
+            if (!commandOpt.has_value()) {
                 std::cout << "\nConnection closed by client." << std::endl;
                 closeSocket(clientSock);
-                std::cout << "Listening on port " << listenPort << "..." << std::endl;
+                break;
+            }
+            std::cout << "\nReceived from client: " << commandOpt.value() << std::endl;
+
+            /* --- Choose Proper Storage Node --- */
+
+            auto keyOpt = extractKey(commandOpt.value());
+            if (!keyOpt.has_value()) {
+                std::cout << "Error: Failed to extract key from client command." << std::endl;
+                closeSocket(clientSock);
                 break;
             }
 
-            std::cout << "Received from client: " << clientCommand.value() << std::endl;
-            if (sendString(serverSock, clientCommand.value()) == false) {
-                closeSocket(serverSock);
-                closeSocket(clientSock);
-                closeSocket(listenSock);
-                cleanupWinsock();
-                return 1;
+            unsigned int keyHash = hashKey(keyOpt.value());
+
+            auto ringIt = ring.lower_bound(keyHash);
+            if (ringIt == ring.end()) {
+                ringIt = ring.begin();
             }
-            std::cout << "Sent to server." << std::endl;
 
-            auto serverRes = receiveString(serverSock);
+            unsigned short nodePort = ringIt->second;
+            std::cout << "Routing key='" << keyOpt.value() << "' to port " << nodePort << "." << std::endl;
 
-            if (!serverRes.has_value()) {
-                std::cout << "\nConnection closed by server." << std::endl;
-                cont = false;
+            /* --- Connect to Storage Node --- */
+
+            SOCKET nodeSock = createSocket();
+            if (nodeSock == INVALID_SOCKET) {
+                std::cerr << "Error: Failed to create storage node socket." << std::endl;
+                closeSocket(clientSock);
+                break;
+            }
+            std::cout << "Storage node socket created." << std::endl;
+
+            if (connectSocket(nodeSock, nodePort) == false) {
+                std::cerr << "Error: Failed to connect to storage node." << std::endl;
+                closeSocket(nodeSock);
+                closeSocket(clientSock);
+                break;
+            }
+            std::cout << "Storage node connection established." << std::endl;
+
+            /* --- Send Client Command to Storage Node --- */
+
+            if (sendString(nodeSock, commandOpt.value()) == false) {
+                std::cerr << "Error: Failed to send command to storage node." << std::endl;
+                closeSocket(nodeSock);
+                closeSocket(clientSock);
                 break;
             }
 
-            std::cout << "Received from server: " << serverRes.value() << std::endl;
-            if (sendString(clientSock, serverRes.value()) == false) {
-                closeSocket(serverSock);
+            /* --- Receive Response from Storage Node --- */
+
+            auto resOpt = receiveString(nodeSock);
+            if (!resOpt.has_value()) {
+                std::cout << "Connection closed by storage node." << std::endl;
+                closeSocket(nodeSock);
                 closeSocket(clientSock);
-                closeSocket(listenSock);
-                cleanupWinsock();
-                return 1;
+                break;
             }
-            std::cout << "Sent to client." << std::endl;
+            std::cout << "Received from storage node: " << resOpt.value() << std::endl;
+
+            /* --- Send Response to Client --- */
+
+            if (sendString(clientSock, resOpt.value()) == false) {
+                std::cerr << "Error: Failed to send response to client." << std::endl;
+                closeSocket(nodeSock);
+                closeSocket(clientSock);
+                break;
+            }
+
+            /* --- Close Connection to Node --- */
+
+            closeSocket(nodeSock);
         }
-
     }
 
     /* --- Cleanup and Safe Exit --- */
 
-    closeSocket(serverSock);
     closeSocket(clientSock);
     closeSocket(listenSock);
     cleanupWinsock();

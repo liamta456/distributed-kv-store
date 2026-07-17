@@ -11,7 +11,7 @@
 bool processCommand(std::string &command);
 
 int main() {
-    std::cout << "--- KV STORE: CLIENT ---\n" << std::endl;
+    std::cout << "--- KV STORE: CLIENT ---" << std::endl;
 
     /* --- WSA Setup --- */
 
@@ -19,27 +19,33 @@ int main() {
     if (initWinsock(wsaData) == false) {
         return 1;
     }
-    std::cout << "Winsock initialized." << std::endl;
+    std::cout << "\nWinsock initialized." << std::endl;
+
+    /* --- Establish Proxy Connection --- */
 
     SOCKET proxySock = createSocket();
     if (proxySock == INVALID_SOCKET) {
+        std::cerr << "\nError: Failed to create proxy API socket." << std::endl;
         cleanupWinsock();
         return 1;
     }
-    std::cout << "Proxy API socket created." << std::endl;
+    std::cout << "\nProxy API socket created." << std::endl;
 
     unsigned short proxyPort = 3030;
-    if (connectToSocket(proxySock, proxyPort) == false) {
+    if (connectSocket(proxySock, proxyPort) == false) {
+        std::cerr << "Error: Failed to connect to proxy API." << std::endl;
         closeSocket(proxySock);
         cleanupWinsock();
         return 1;
     }
-    std::cout << "Proxy API connection established.\n" << std::endl;
+    std::cout << "Proxy API connection established." << std::endl;
 
     /* --- Input Loop --- */
 
     while (true) {
-        std::cout << "Enter a command (<put|get|del> <key> <value|empty>). Enter without input to finish: " << std::flush;
+        /* --- Obtain User Command Input --- */
+        
+        std::cout << "\nEnter a command (<put|get|del> <key> <value|empty>). Enter without input to finish: " << std::flush;
         std::string command = "";
         std::getline(std::cin, command);
 
@@ -47,24 +53,31 @@ int main() {
             break;
         }
 
+        /* --- Validate Command --- */
+
         if (!processCommand(command)) {
-            std::cerr << "Error: invalid command.\n" << std::endl;
+            std::cerr << "Error: Invalid command." << std::endl;
             continue;
         }
 
+        /* --- Send Command to Proxy --- */
+
         if (sendString(proxySock, command) == false) {
+            std::cerr << "Error: Failed to send command to proxy API." << std::endl;
             closeSocket(proxySock);
             cleanupWinsock();
             return 1;
         }
 
-        auto res = receiveString(proxySock);
-        if (res.has_value()) {
-            std::cout << res.value() << "\n"<< std::endl;
-        } else {
+        /* --- Receive Response from Proxy --- */
+
+        auto resOpt = receiveString(proxySock);
+        if (!resOpt.has_value()) {
             std::cout << "Connection closed by proxy API." << std::endl;
             break;
-        }  
+            
+        }
+        std::cout << resOpt.value() << std::endl;
     }
 
     /* --- Cleanup and Safe Exit --- */
@@ -75,6 +88,10 @@ int main() {
     return 0;
 }
 
+/**
+ * Validates command structure. If successful, returns true and formats command
+ * argument. Otherwise, returns false without altering command argument.
+ */
 bool processCommand(std::string &command) {
     std::stringstream commandStream(command);
 
