@@ -156,6 +156,7 @@ int main() {
 
     while (true) {
         /* --- Accept Client Connection --- */
+        
         SOCKET clientSock = INVALID_SOCKET;
         clientSock = acceptClient(listenSock);
         if (clientSock == INVALID_SOCKET) {
