@@ -10,10 +10,12 @@ Liam Ta
 - Windows
 
 ## Features
-- In-Memory Key Value Storage
+- In-Memory Key-Value Storage
 - Distributed Node System
 - Consistent Hashing Ring
 - TCP Socket Networking via Winsock2
+- Multithreaded Proxy and Nodes
+- Thread-Safe Data Store Protected by Mutex Locks
 - Proxy Routing
 - Space-Delimited Command Protocol
 - Client CLI
@@ -25,33 +27,41 @@ Client <--> Proxy API <--> Storage Nodes
 ### Applications
 Client
 - Creates a socket to connect to the proxy API
-    - Retrieves a command input from the user
-    - Validates the command
-    - Sends the command to the proxy
-    - Receives a response from the proxy
+- Retrieves a command input from the user
+- Validates the command
+- Sends the command to the proxy
+- Receives a response from the proxy
 
 Proxy API
 - Creates a socket to listen for client connections
-    - Accepts a client connection
-        - Receives the client command
-        - Chooses the proper storage node to interact with via consistent hashing
-        - Connects to the proper node
-        - Sends the command to the node
-        - Receives a response from the node
-        - Sends the response to the client
-        - Closes connection to the node
+- Accepts a client connection
+- Creates a dedicated thread to handle each client connection
+- Receives the client command
+- Chooses the proper storage node to interact with via consistent hashing
+- Connects to the proper node
+- Sends the command to the node
+- Receives a response from the node
+- Sends the response to the client
+- Closes connection to the node
 
 Storage Node
 - Creates a socket to listen for the proxy connection
-    - Accepts the proxy connection
-    - Receives the command from the proxy
-    - Validates the command
-    - Performs the desired operation
-    - Sends a response to the proxy
+- Accepts the proxy connection
+- Creates a dedicated thread to handle each proxy connection
+- Receives the command from the proxy
+- Validates the command
+- Performs the desired operation on a store protected by a mutex lock
+- Sends a response to the proxy
 
 ### Client Command Structure
-`<put|get|del> <key> <value>`
-- `<value>` is omitted for `get` and `del`.
+`<PUT|GET|DEL> <key> <value>`
+- `<value>` is omitted for `GET` and `DEL`.
+
+## Testing and Validation
+Concurrency
+- Stress tested with 100 concurrent client processes issuing 10,000 total requests.
+- All requests were accounted for and processed successfully across three storage nodes.
+- Post-test GET validation retrieved all expected key-value pairs, confirming data consistency.
 
 ## To Run
 - Utilize PowerShell.
